@@ -5,7 +5,6 @@ MCP-сервер для интеграции с LightRAG API. Этот серв�
 ## Возможности
 
 - Интеграция с LightRAG API для поиска и извлечения информации из документов
-- Автоматический запуск LightRAG API сервера при необходимости
 - Предоставление доступа к WebUI LightRAG
 - API для загрузки и управления документами
 - Поддержка различных режимов поиска (hybrid, semantic, keyword)
@@ -41,19 +40,6 @@ uv pip install -e ".[dev]"
 LIGHTRAG_API_HOST="localhost"
 LIGHTRAG_API_PORT=9621
 LIGHTRAG_API_KEY="your-api-key-here"
-# Автоматический запуск LightRAG API или подключение к существующему
-LIGHTRAG_AUTOSTART=false
-
-# Параметры для LightRAG API, если он запускается MCP-сервером
-LLM_BINDING="openai"  # openai, ollama, azure_openai
-LLM_MODEL="gpt-4o-mini"
-LLM_BINDING_HOST="https://api.openai.com/v1"
-LLM_BINDING_API_KEY="your-openai-api-key"
-
-EMBEDDING_BINDING="openai"
-EMBEDDING_MODEL="text-embedding-3-large"
-EMBEDDING_BINDING_HOST="https://api.openai.com/v1"
-EMBEDDING_BINDING_API_KEY="your-openai-api-key"
 
 # Параметры для MCP сервера
 HOST="0.0.0.0"
@@ -68,15 +54,14 @@ MCP_API_KEY="your-mcp-api-key-here"
 
 ### Запуск сервера
 
+> **ВАЖНО**: Перед запуском MCP сервера необходимо запустить LightRAG API сервер вручную. MCP сервер не запускает LightRAG API автоматически.
+
 ```bash
 # Запуск MCP сервера
 lightrag-mcp
 
 # Запуск с указанием порта и хоста
 lightrag-mcp --host 127.0.0.1 --port 8000
-
-# Запуск с автоматическим запуском LightRAG API
-lightrag-mcp --lightrag-autostart
 
 # Запуск с подробным логированием
 lightrag-mcp --log-level DEBUG
@@ -86,10 +71,10 @@ lightrag-mcp --log-level DEBUG
 
 1. Запустите LightRAG API сервер отдельно:
 ```bash
-lightrag-server --port 9621
+uv run LightRAG/lightrag/api/lightrag_server.py --host localhost --port 9621 --working-dir ./rag_storage --input-dir ./input --llm-binding openai --embedding-binding openai --log-level DEBUG
 ```
 
-2. Запустите MCP сервер без автозапуска LightRAG:
+2. Запустите MCP сервер:
 ```bash
 lightrag-mcp
 ```

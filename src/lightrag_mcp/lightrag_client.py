@@ -28,7 +28,7 @@ class LightRAGClient:
         if api_key:
             self.headers["X-API-Key"] = api_key
     
-    async def query(self, query_text: str, mode: str = "hybrid", 
+    async def query(self, query_text: str, mode: str = "mix", 
                   top_k: int = 60, only_need_context: bool = False,
                   system_prompt: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -70,7 +70,7 @@ class LightRAGClient:
             logger.error(f"Ошибка при запросе {url}: {str(e)}")
             raise
     
-    async def query_stream(self, query_text: str, mode: str = "hybrid", 
+    async def query_stream(self, query_text: str, mode: str = "mix", 
                          top_k: int = 60, only_need_context: bool = False,
                          system_prompt: Optional[str] = None):
         """
@@ -230,22 +230,21 @@ class LightRAGClient:
             logger.error(f"Ошибка при удалении документа: {str(e)}")
             raise
     
-    async def check_health(self) -> Dict[str, Any]:
+    async def health_check(self) -> Dict[str, Any]:
         """
         Проверка состояния LightRAG API.
         
         Returns:
             Dict[str, Any]: Статус сервера
         """
-        url = f"{self.base_url}/health"
-        
-        logger.debug(f"Проверка состояния LightRAG API: {url}")
-        
         try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                response = await client.get(url, headers=self.headers)
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(f"{self.base_url}/health", headers=self.headers)
                 response.raise_for_status()
                 return response.json()
-        except (httpx.RequestError, httpx.HTTPStatusError) as e:
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Ошибка HTTP при проверке состояния: {e.response.status_code} - {e.response.text}")
+            raise
+        except httpx.RequestError as e:
             logger.error(f"Ошибка при проверке состояния: {str(e)}")
-            return {"status": "error", "message": "LightRAG API недоступен"}
+            return {"status": "error", "message": f"Ошибка соединения: {str(e)}"}

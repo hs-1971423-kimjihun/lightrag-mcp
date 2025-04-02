@@ -1,0 +1,14 @@
+- Для запуска проекта LightRAG MCP необходимо:
+1. ВСЕГДА использовать uv для управления зависимостями и запуска.
+Примеры: 
+```
+- uv run LightRAG/lightrag/api/lightrag_server.py --host localhost --port 9621 --working-dir ./rag_s
+torage --input-dir ./input --llm-binding openai --embedding-binding openai --log-level DEBUG
+- uv pip install -r LightRAG/lightrag/api/requirements.txt
+```
+
+2. Использовать виртуальное окружение (venv)
+- `uv venv --python 3.11`
+
+3. Использовать PostgreSQL в Docker для хранения данных
+- `docker compose up -d`
