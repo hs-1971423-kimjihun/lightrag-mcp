@@ -3,8 +3,10 @@
 """
 
 import logging
-from typing import Dict, List, Optional, Union, Any
+from typing import Any, Dict, List, Optional, Union, cast
+
 from mcp.server.fastmcp import FastMCP
+
 from lightrag_mcp import config
 from lightrag_mcp.lightrag_client import LightRAGClient
 
@@ -12,6 +14,39 @@ logger = logging.getLogger(__name__)
 
 # Создание MCP-сервера
 mcp = FastMCP("LightRAG MCP Server")
+
+
+def format_response(result: Any, is_error: bool = False) -> Dict[str, Any]:
+    """
+    Форматирует ответ в стандартный формат.
+
+    Args:
+        result: Результат операции
+        is_error: Флаг ошибки
+
+    Returns:
+        Dict[str, Any]: Стандартизированный ответ
+    """
+    if is_error:
+        if isinstance(result, str):
+            return {"status": "error", "error": result}
+        return {"status": "error", "error": str(result)}
+
+    # Если результат уже словарь, возвращаем его в обертке
+    if isinstance(result, dict):
+        return {"status": "success", "response": result}
+
+    # Если результат имеет метод dict() или __dict__, используем его
+    if hasattr(result, "dict") and callable(getattr(result, "dict")):
+        return {"status": "success", "response": result.dict()}
+    if hasattr(result, "__dict__"):
+        return {"status": "success", "response": result.__dict__}
+    if hasattr(result, "to_dict") and callable(getattr(result, "to_dict")):
+        return {"status": "success", "response": result.to_dict()}
+
+    # В остальных случаях преобразуем в строку
+    return {"status": "success", "response": str(result)}
+
 
 # Глобальная переменная для клиента LightRAG
 lightrag_client = None
@@ -34,12 +69,11 @@ async def init_lightrag():
     lightrag_client = LightRAGClient(
         base_url=config.LIGHTRAG_API_BASE_URL,
         api_key=config.LIGHTRAG_API_KEY,
-        timeout=config.TIMEOUT,
     )
 
     # Проверка доступности LightRAG API
     try:
-        health = await lightrag_client.health_check()
+        health = await lightrag_client.get_health()
         if health.get("status") == "ok":
             logger.info("LightRAG API доступен")
         else:
@@ -56,79 +90,6 @@ async def init_lightrag():
     is_initialized = True
 
 
-# === MCP Ресурсы ===
-
-
-@mcp.resource("document://{doc_id}")
-async def get_document(doc_id: str) -> Dict[str, Any]:
-    """
-    Получение информации о документе по ID.
-
-    Args:
-        doc_id (str): Идентификатор документа
-
-    Returns:
-        Dict[str, Any]: Информация о документе
-    """
-    logger.info(f"Запрос информации о документе: {doc_id}")
-
-    global lightrag_client
-    if lightrag_client is None:
-        await init_lightrag()
-
-    # Эта функция требует дополнительной реализации в LightRAG API
-    # В текущей версии LightRAG API нет прямого метода для получения информации о документе по ID
-    logger.warning(
-        f"Метод получения документа по ID {doc_id} не реализован в текущей версии LightRAG API"
-    )
-    return {
-        "id": doc_id,
-        "status": "not_implemented",
-        "message": "Метод получения документа по ID не реализован в текущей версии LightRAG API",
-    }
-
-
-@mcp.resource("config://lightrag")
-async def get_lightrag_config() -> Dict[str, Any]:
-    """
-    Получение конфигурации LightRAG.
-
-    Returns:
-        Dict[str, Any]: Конфигурация LightRAG
-    """
-    logger.info("Запрос конфигурации LightRAG")
-
-    # Маскируем конфиденциальные данные
-    return {
-        "api": {
-            "host": config.LIGHTRAG_API_HOST,
-            "port": config.LIGHTRAG_API_PORT,
-            "base_url": config.LIGHTRAG_API_BASE_URL,
-        },
-        "server": {
-            "host": config.SERVER_HOST,
-            "port": config.SERVER_PORT,
-            "timeout": config.TIMEOUT,
-        },
-        "directories": {
-            "working_dir": config.WORKING_DIR,
-            "input_dir": config.INPUT_DIR,
-        },
-    }
-
-
-@mcp.resource("ui://lightrag")
-async def get_lightrag_ui_url() -> str:
-    """
-    Возвращает URL для доступа к WebUI LightRAG.
-
-    Returns:
-        str: URL для доступа к WebUI
-    """
-    logger.info("Запрос URL для WebUI LightRAG")
-    return f"http://{config.LIGHTRAG_API_HOST}:{config.LIGHTRAG_API_PORT}/"
-
-
 # === MCP Инструменты ===
 
 
@@ -136,19 +97,33 @@ async def get_lightrag_ui_url() -> str:
 async def query_document(
     query: str,
     mode: str = "mix",
-    top_k: int = 60,
+    top_k: int = 10,
     only_need_context: bool = False,
-    system_prompt: Optional[str] = None,
+    only_need_prompt: bool = False,
+    response_type: str = "Multiple Paragraphs",
+    max_token_for_text_unit: int = 1000,
+    max_token_for_global_context: int = 1000,
+    max_token_for_local_context: int = 1000,
+    hl_keywords: list[str] = [],
+    ll_keywords: list[str] = [],
+    history_turns: int = 10,
 ) -> Dict[str, Any]:
     """
     Выполнение поиска в документах через LightRAG API.
 
     Args:
         query (str): Текст запроса
-        mode (str): Режим поиска (mix, semantic, keyword)
+        mode (str): Режим поиска (mix, semantic, keyword, global, hybrid, local, naive)
         top_k (int): Количество результатов
         only_need_context (bool): Возвращать только контекст без создания ответа LLM
-        system_prompt (Optional[str]): Системный промпт для LLM
+        only_need_prompt (bool): Если True, возвращает только сгенерированный запрос без создания ответа
+        response_type (str): Определяет формат ответа. Примеры: 'Multiple Paragraphs', 'Single Paragraph', 'Bullet Points'
+        max_token_for_text_unit (int): Максимальное количество токенов для каждого текстового фрагмента
+        max_token_for_global_context (int): Максимальное количество токенов для глобального контекста
+        max_token_for_local_context (int): Максимальное количество токенов для локального контекста
+        hl_keywords (list[str]): Список ключевых слов высокого уровня для приоритизации
+        ll_keywords (list[str]): Список ключевых слов низкого уровня для уточнения поиска
+        history_turns (int): Количество ходов разговора в контексте ответа
 
     Returns:
         Dict[str, Any]: Результаты запроса
@@ -158,15 +133,38 @@ async def query_document(
 
     if lightrag_client is None:
         await init_lightrag()
+        if lightrag_client is None:
+            return format_response("Не удалось инициализировать LightRAG API клиент", is_error=True)
 
-    result = await lightrag_client.query(
-        query_text=query,
-        mode=mode,
-        top_k=top_k,
-        only_need_context=only_need_context,
-        system_prompt=system_prompt,
-    )
-    return result
+    # Явное утверждение типа для mypy
+    client = cast(LightRAGClient, lightrag_client)
+
+    try:
+        result = await client.query(
+            query_text=query,
+            mode=mode,
+            top_k=top_k,
+            only_need_context=only_need_context,
+            only_need_prompt=only_need_prompt,
+            response_type=response_type,
+            max_token_for_text_unit=max_token_for_text_unit,
+            max_token_for_global_context=max_token_for_global_context,
+            max_token_for_local_context=max_token_for_local_context,
+            hl_keywords=hl_keywords,
+            ll_keywords=ll_keywords,
+            history_turns=history_turns,
+        )
+
+        # Проверка результата
+        if result is None:
+            logger.error("LightRAG API вернул пустой результат (None)")
+            return format_response("Получен пустой ответ от LightRAG API", is_error=True)
+
+        return format_response(result)
+    except Exception as e:
+        error_msg = f"Ошибка при выполнении запроса к LightRAG API: {str(e)}"
+        logger.error(error_msg)
+        return format_response(error_msg, is_error=True)
 
 
 @mcp.tool()
@@ -176,27 +174,35 @@ async def insert_document(
     description: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Добавление документа через LightRAG API.
+    Добавление документов через LightRAG API.
 
     Args:
         text (Union[str, List[str]]): Текст или список текстов для добавления
-        ids (Optional[List[str]]): Список ID для текстов
-        description (Optional[str]): Описание документов
+        ids (Optional[List[str]]): Список ID для текстов (примечание: в текущей версии API не используется)
+        description (Optional[str]): Описание документов (примечание: в текущей версии API не используется)
 
     Returns:
         Dict[str, Any]: Результат операции
     """
-    logger.info(f"Добавление документа, описание: {description}")
+    logger.info(f"Добавление документов, описание: {description}")
     global lightrag_client
 
     if lightrag_client is None:
         await init_lightrag()
+        if lightrag_client is None:
+            return format_response("Не удалось инициализировать LightRAG API клиент", is_error=True)
 
-    result = await lightrag_client.insert_text(
-        text=text, ids=ids, description=description
-    )
-
-    return result
+    # Явное утверждение типа для mypy
+    client = cast(LightRAGClient, lightrag_client)
+    try:
+        result = await client.insert_text(text=text)
+        if result is None:
+            return format_response("Не удалось добавить текст", is_error=True)
+        return format_response(result)
+    except Exception as e:
+        error_msg = f"Ошибка при добавлении текста: {str(e)}"
+        logger.error(error_msg)
+        return format_response(error_msg, is_error=True)
 
 
 @mcp.tool()
@@ -219,34 +225,192 @@ async def upload_document(
 
     if lightrag_client is None:
         await init_lightrag()
+        if lightrag_client is None:
+            return format_response("Не удалось инициализировать LightRAG API клиент", is_error=True)
 
-    result = await lightrag_client.upload_file(
-        file_path=file_path, file_id=file_id, description=description
-    )
-
-    return result
+    # Явное утверждение типа для mypy
+    client = cast(LightRAGClient, lightrag_client)
+    try:
+        result = await client.upload_document(file_path=file_path)
+        return format_response(result)
+    except Exception as e:
+        error_msg = f"Ошибка при загрузке файла: {str(e)}"
+        logger.error(error_msg)
+        return format_response(error_msg, is_error=True)
 
 
 @mcp.tool()
-async def delete_document(doc_id: str) -> Dict[str, Any]:
+async def insert_file(file_path: str) -> Dict[str, Any]:
     """
-    Удаление документа из LightRAG.
+    Добавление документа из файла в LightRAG.
 
     Args:
-        doc_id (str): ID документа для удаления
+        file_path (str): Путь к файлу для загрузки
 
     Returns:
         Dict[str, Any]: Результат операции
     """
-    logger.info(f"Удаление документа: {doc_id}")
+    logger.info(f"Добавление файла: {file_path}")
     global lightrag_client
 
     if lightrag_client is None:
         await init_lightrag()
+        if lightrag_client is None:
+            return format_response("Не удалось инициализировать LightRAG API клиент", is_error=True)
 
-    result = await lightrag_client.delete_document(doc_id=doc_id)
+    # Явное утверждение типа для mypy
+    client = cast(LightRAGClient, lightrag_client)
+    try:
+        result = await client.insert_file(file_path=file_path)
+        return format_response(result)
+    except Exception as e:
+        error_msg = f"Ошибка при добавлении файла в LightRAG API: {str(e)}"
+        logger.error(error_msg)
+        return format_response(error_msg, is_error=True)
 
-    return result
+
+@mcp.tool()
+async def insert_batch(directory_path: str) -> Dict[str, Any]:
+    """
+    Добавление пакета документов из директории в LightRAG.
+
+    Args:
+        directory_path (str): Путь к директории с файлами для добавления
+
+    Returns:
+        Dict[str, Any]: Результат операции
+    """
+    logger.info(f"Добавление пакета документов из директории: {directory_path}")
+    global lightrag_client
+
+    if lightrag_client is None:
+        await init_lightrag()
+        if lightrag_client is None:
+            return format_response("Не удалось инициализировать LightRAG API клиент", is_error=True)
+
+    # Явное утверждение типа для mypy
+    client = cast(LightRAGClient, lightrag_client)
+    try:
+        result = await client.insert_batch(directory_path=directory_path)
+        if result is None:
+            return format_response("Не удалось добавить документы из директории", is_error=True)
+        return format_response(result)
+    except Exception as e:
+        error_msg = f"Ошибка при добавлении документов из директории в LightRAG API: {str(e)}"
+        logger.error(error_msg)
+        return format_response(error_msg, is_error=True)
+
+
+@mcp.tool()
+async def scan_for_new_documents() -> Dict[str, Any]:
+    """
+    Запуск сканирования директории на наличие новых документов.
+
+    Returns:
+        Dict[str, Any]: Результат операции
+    """
+    logger.info("Запуск сканирования директории на наличие новых документов")
+    global lightrag_client
+
+    if lightrag_client is None:
+        await init_lightrag()
+        if lightrag_client is None:
+            return format_response("Не удалось инициализировать LightRAG API клиент", is_error=True)
+
+    # Явное утверждение типа для mypy
+    client = cast(LightRAGClient, lightrag_client)
+    try:
+        result = await client.scan_for_new_documents()
+        return format_response(result)
+    except Exception as e:
+        error_msg = f"Ошибка при сканировании директории: {str(e)}"
+        logger.error(error_msg)
+        return format_response(error_msg, is_error=True)
+
+
+@mcp.tool()
+async def get_documents() -> Dict[str, Any]:
+    """
+    Получение списка всех загруженных документов.
+
+    Returns:
+        Dict[str, Any]: Список документов
+    """
+    logger.info("Получение списка загруженных документов")
+    global lightrag_client
+
+    if lightrag_client is None:
+        await init_lightrag()
+        if lightrag_client is None:
+            return format_response("Не удалось инициализировать LightRAG API клиент", is_error=True)
+
+    # Явное утверждение типа для mypy
+    client = cast(LightRAGClient, lightrag_client)
+    try:
+        result = await client.get_documents()
+        if result is None:
+            return format_response("Не удалось получить список документов", is_error=True)
+        return format_response(result)
+    except Exception as e:
+        error_msg = f"Ошибка при получении списка документов: {str(e)}"
+        logger.error(error_msg)
+        return format_response(error_msg, is_error=True)
+
+
+@mcp.tool()
+async def get_pipeline_status() -> Dict[str, Any]:
+    """
+    Получение статуса обработки документов в пайплайне.
+
+    Returns:
+        Dict[str, Any]: Статус пайплайна
+    """
+    logger.info("Получение статуса обработки документов в пайплайне")
+    global lightrag_client
+
+    if lightrag_client is None:
+        await init_lightrag()
+        if lightrag_client is None:
+            return format_response("Не удалось инициализировать LightRAG API клиент", is_error=True)
+
+    # Явное утверждение типа для mypy
+    client = cast(LightRAGClient, lightrag_client)
+    try:
+        result = await client.get_pipeline_status()
+        if result is None:
+            return format_response("Не удалось получить статус пайплайна", is_error=True)
+        return format_response(result)
+    except Exception as e:
+        error_msg = f"Ошибка при получении статуса пайплайна: {str(e)}"
+        logger.error(error_msg)
+        return format_response(error_msg, is_error=True)
+
+
+@mcp.tool()
+async def get_graph_labels() -> Dict[str, Any]:
+    """
+    Получение меток (типов узлов и связей) из графа знаний.
+
+    Returns:
+        Dict[str, Any]: Метки графа
+    """
+    logger.info("Получение меток из графа знаний")
+    global lightrag_client
+
+    if lightrag_client is None:
+        await init_lightrag()
+        if lightrag_client is None:
+            return format_response("Не удалось инициализировать LightRAG API клиент", is_error=True)
+
+    # Явное утверждение типа для mypy
+    client = cast(LightRAGClient, lightrag_client)
+    try:
+        result = await client.get_graph_labels()
+        return format_response(result)
+    except Exception as e:
+        error_msg = f"Ошибка при получении меток графа: {str(e)}"
+        logger.error(error_msg)
+        return format_response(error_msg, is_error=True)
 
 
 @mcp.tool()
@@ -262,15 +426,18 @@ async def check_lightrag_health() -> Dict[str, Any]:
 
     if lightrag_client is None:
         await init_lightrag()
+        if lightrag_client is None:
+            return format_response("Не удалось инициализировать LightRAG API клиент", is_error=True)
 
+    # Явное утверждение типа для mypy
+    client = cast(LightRAGClient, lightrag_client)
     try:
-        result = await lightrag_client.health_check()
-        logger.info(f"LightRAG API статус: {result.get('status', 'unknown')}")
-        return result
+        result = await client.get_health()
+        return format_response(result)
     except Exception as e:
         error_msg = f"Ошибка при проверке состояния LightRAG API: {str(e)}"
         logger.error(error_msg)
         logger.error(
             f"Убедитесь, что LightRAG API сервер запущен и доступен по адресу: {config.LIGHTRAG_API_BASE_URL}"
         )
-        return {"status": "error", "message": error_msg}
+        return format_response(error_msg, is_error=True)

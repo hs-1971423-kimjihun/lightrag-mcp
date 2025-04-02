@@ -4,6 +4,7 @@
 
 import os
 import pathlib
+
 from dotenv import load_dotenv
 
 # Загрузка переменных окружения из .env файла
@@ -18,12 +19,11 @@ LIGHTRAG_API_HOST = os.getenv("LIGHTRAG_API_HOST", "localhost")
 LIGHTRAG_API_PORT = int(os.getenv("LIGHTRAG_API_PORT", "9621"))
 LIGHTRAG_API_KEY = os.getenv("LIGHTRAG_API_KEY", "")
 LIGHTRAG_API_BASE_URL = f"http://{LIGHTRAG_API_HOST}:{LIGHTRAG_API_PORT}"
-# Сервер LightRAG должен быть запущен пользователем вручную
 
 # Параметры для MCP сервера
 SERVER_HOST = os.getenv("HOST", "0.0.0.0")
-SERVER_PORT = int(os.getenv("PORT", "8000"))  # Другой порт, чтобы не конфликтовать с LightRAG
-TIMEOUT = int(os.getenv("TIMEOUT", "150"))
+SERVER_PORT = int(os.getenv("PORT", "8000"))
+TIMEOUT = int(os.getenv("TIMEOUT", "300"))
 
 # API ключи и безопасность
 MCP_API_KEY = os.getenv("MCP_API_KEY", "")
