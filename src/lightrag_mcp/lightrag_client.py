@@ -54,7 +54,11 @@ class LightRAGClient:
     Клиент для взаимодействия с LightRAG API.
     """
 
-    def __init__(self, base_url: str, api_key: str = ""):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str = "NOT USED",
+    ):
         """
         Инициализация клиента LightRAG API.
 
