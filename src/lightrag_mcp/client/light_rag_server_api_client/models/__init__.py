@@ -9,10 +9,14 @@ from .doc_status_response import DocStatusResponse
 from .doc_status_response_metadata_type_0 import DocStatusResponseMetadataType0
 from .docs_statuses_response import DocsStatusesResponse
 from .docs_statuses_response_statuses import DocsStatusesResponseStatuses
+from .entity_request import EntityRequest
+from .entity_request_properties import EntityRequestProperties
 from .http_validation_error import HTTPValidationError
 from .insert_response import InsertResponse
 from .insert_text_request import InsertTextRequest
 from .insert_texts_request import InsertTextsRequest
+from .merge_entities_request import MergeEntitiesRequest
+from .merge_entities_request_merge_strategy_type_0 import MergeEntitiesRequestMergeStrategyType0
 from .ollama_chat_request import OllamaChatRequest
 from .ollama_chat_request_options_type_0 import OllamaChatRequestOptionsType0
 from .ollama_generate_request import OllamaGenerateRequest
@@ -24,6 +28,8 @@ from .query_request import QueryRequest
 from .query_request_conversation_history_type_0_item import QueryRequestConversationHistoryType0Item
 from .query_request_mode import QueryRequestMode
 from .query_response import QueryResponse
+from .relation_request import RelationRequest
+from .relation_request_properties import RelationRequestProperties
 from .validation_error import ValidationError
 
 __all__ = (
@@ -36,10 +42,14 @@ __all__ = (
     "DocStatus",
     "DocStatusResponse",
     "DocStatusResponseMetadataType0",
+    "EntityRequest",
+    "EntityRequestProperties",
     "HTTPValidationError",
     "InsertResponse",
     "InsertTextRequest",
     "InsertTextsRequest",
+    "MergeEntitiesRequest",
+    "MergeEntitiesRequestMergeStrategyType0",
     "OllamaChatRequest",
     "OllamaChatRequestOptionsType0",
     "OllamaGenerateRequest",
@@ -51,5 +61,7 @@ __all__ = (
     "QueryRequestConversationHistoryType0Item",
     "QueryRequestMode",
     "QueryResponse",
+    "RelationRequest",
+    "RelationRequestProperties",
     "ValidationError",
 )
