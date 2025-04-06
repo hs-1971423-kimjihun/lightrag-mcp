@@ -7,9 +7,7 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
-    from ..models.pipeline_status_response_update_status_type_0 import (
-        PipelineStatusResponseUpdateStatusType0,
-    )
+    from ..models.pipeline_status_response_update_status_type_0 import PipelineStatusResponseUpdateStatusType0
 
 
 T = TypeVar("T", bound="PipelineStatusResponse")
@@ -60,9 +58,7 @@ class PipelineStatusResponse:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        from ..models.pipeline_status_response_update_status_type_0 import (
-            PipelineStatusResponseUpdateStatusType0,
-        )
+        from ..models.pipeline_status_response_update_status_type_0 import PipelineStatusResponseUpdateStatusType0
 
         autoscanned = self.autoscanned
 
@@ -133,9 +129,7 @@ class PipelineStatusResponse:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.pipeline_status_response_update_status_type_0 import (
-            PipelineStatusResponseUpdateStatusType0,
-        )
+        from ..models.pipeline_status_response_update_status_type_0 import PipelineStatusResponseUpdateStatusType0
 
         d = dict(src_dict)
         autoscanned = d.pop("autoscanned", UNSET)
@@ -180,9 +174,7 @@ class PipelineStatusResponse:
 
         history_messages = _parse_history_messages(d.pop("history_messages", UNSET))
 
-        def _parse_update_status(
-            data: object,
-        ) -> Union["PipelineStatusResponseUpdateStatusType0", None, Unset]:
+        def _parse_update_status(data: object) -> Union["PipelineStatusResponseUpdateStatusType0", None, Unset]:
             if data is None:
                 return data
             if isinstance(data, Unset):

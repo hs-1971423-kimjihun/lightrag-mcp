@@ -10,7 +10,6 @@ from .doc_status_response_metadata_type_0 import DocStatusResponseMetadataType0
 from .docs_statuses_response import DocsStatusesResponse
 from .docs_statuses_response_statuses import DocsStatusesResponseStatuses
 from .entity_request import EntityRequest
-from .entity_request_properties import EntityRequestProperties
 from .http_validation_error import HTTPValidationError
 from .insert_response import InsertResponse
 from .insert_text_request import InsertTextRequest
@@ -29,7 +28,6 @@ from .query_request_conversation_history_type_0_item import QueryRequestConversa
 from .query_request_mode import QueryRequestMode
 from .query_response import QueryResponse
 from .relation_request import RelationRequest
-from .relation_request_properties import RelationRequestProperties
 from .validation_error import ValidationError
 
 __all__ = (
