@@ -45,6 +45,7 @@ rag_storage/
 input/
 *.log
 LightRAG/
+.windsurfrules
 
 # OS specific
 .DS_Store
