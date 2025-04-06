@@ -12,3 +12,6 @@ torage --input-dir ./input --llm-binding openai --embedding-binding openai --log
 
 3. Использовать PostgreSQL в Docker для хранения данных
 - `docker compose up -d`
+
+---
+
