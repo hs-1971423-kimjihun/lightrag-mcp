@@ -5,7 +5,9 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.body_upload_to_input_dir_documents_upload_post import BodyUploadToInputDirDocumentsUploadPost
+from ...models.body_upload_to_input_dir_documents_upload_post import (
+    BodyUploadToInputDirDocumentsUploadPost,
+)
 from ...models.http_validation_error import HTTPValidationError
 from ...types import UNSET, Response, Unset
 

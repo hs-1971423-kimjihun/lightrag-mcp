@@ -1,5 +1,5 @@
 """
-Точка входа для MCP-сервера LightRAG.
+Entry point for LightRAG MCP server.
 """
 
 import logging
@@ -14,35 +14,34 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("lightrag-mcp.log"),
     ],
 )
 logger = logging.getLogger(__name__)
 
 
 def main():
-    """Основная функция запуска сервера."""
+    """Main function for server startup."""
     try:
-        # Настройка уровня логирования
-        log_level = getattr(logging, "DEBUG")
+        # Setting up logging level
+        log_level = getattr(logging, "INFO")
         logging.getLogger().setLevel(log_level)
 
-        # Настройка переменных окружения для увеличения таймаутов
+        # Setting environment variables to increase timeouts
         os.environ["STARLETTE_KEEP_ALIVE_TIMEOUT"] = str(config.TIMEOUT)
         os.environ["UVICORN_TIMEOUT_KEEP_ALIVE"] = str(config.TIMEOUT)
 
-        # Запуск MCP сервера
-        logger.info("Запуск LightRAG MCP сервера")
-        logger.info(f"Установлен таймаут: {config.TIMEOUT} секунд")
+        # Starting MCP server
+        logger.info("Starting LightRAG MCP server")
+        logger.info(f"Timeout set: {config.TIMEOUT} seconds")
         logger.info(
-            f"Ожидается, что LightRAG API сервер уже запущен и доступен по адресу: {config.LIGHTRAG_API_BASE_URL}"
+            f"LightRAG API server is expected to be already running and available at: {config.LIGHTRAG_API_BASE_URL}"
         )
-        mcp.run()
+        mcp.run(transport="stdio")
 
     except KeyboardInterrupt:
-        logger.info("Сервер остановлен пользователем")
+        logger.info("Server stopped by user")
     except Exception as e:
-        logger.exception(f"Ошибка при запуске сервера: {str(e)}")
+        logger.exception(f"Error starting server: {str(e)}")
         sys.exit(1)
 
 
