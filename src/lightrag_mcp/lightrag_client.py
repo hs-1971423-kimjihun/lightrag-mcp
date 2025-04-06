@@ -1,16 +1,16 @@
 """
-Клиент для взаимодействия с LightRAG API.
+Client for interacting with LightRAG API.
 """
 
 import logging
 from pathlib import Path
-from typing import Any, Awaitable, Callable, List, TypeVar, Union
+from typing import Any, Awaitable, Callable, Dict, List, TypeVar, Union
+import re
 
 from lightrag_mcp.client.light_rag_server_api_client.api.default import async_get_health
 from lightrag_mcp.client.light_rag_server_api_client.api.documents import (
     async_get_documents,
     async_get_pipeline_status,
-    async_insert_batch,
     async_insert_document,
     async_insert_file,
     async_insert_texts,
@@ -18,14 +18,20 @@ from lightrag_mcp.client.light_rag_server_api_client.api.documents import (
     async_upload_document,
 )
 from lightrag_mcp.client.light_rag_server_api_client.api.graph import (
+    async_create_entity,
+    async_create_relation,
+    async_delete_by_doc_id,
+    async_delete_entity,
+    async_edit_entity,
+    async_edit_relation,
     async_get_graph_labels,
+    async_merge_entities,
 )
 from lightrag_mcp.client.light_rag_server_api_client.api.query import (
     async_query_document,
 )
 from lightrag_mcp.client.light_rag_server_api_client.client import AuthenticatedClient
 from lightrag_mcp.client.light_rag_server_api_client.models import (
-    BodyInsertBatchDocumentsFileBatchPost,
     BodyInsertFileDocumentsFilePost,
     BodyUploadToInputDirDocumentsUploadPost,
     DocsStatusesResponse,
@@ -37,21 +43,34 @@ from lightrag_mcp.client.light_rag_server_api_client.models import (
     QueryRequest,
     QueryRequestMode,
     QueryResponse,
+    relation_request,
+    relation_response,
 )
-from lightrag_mcp.client.light_rag_server_api_client.types import UNSET, File
+from lightrag_mcp.client.light_rag_server_api_client.models.entity_request import EntityRequest
+from lightrag_mcp.client.light_rag_server_api_client.models.entity_response import EntityResponse
+from lightrag_mcp.client.light_rag_server_api_client.models.merge_entities_request import (
+    MergeEntitiesRequest,
+)
+from lightrag_mcp.client.light_rag_server_api_client.models.merge_entities_request_merge_strategy_type_0 import (
+    MergeEntitiesRequestMergeStrategyType0,
+)
+from lightrag_mcp.client.light_rag_server_api_client.models.status_message_response import (
+    StatusMessageResponse,
+)
+from lightrag_mcp.client.light_rag_server_api_client.types import File
 
 from .client.light_rag_server_api_client.errors import UnexpectedStatus
 
 logger = logging.getLogger(__name__)
 
-# Определение типа для функций API
+# Definition of type for API functions
 T = TypeVar("T", covariant=True)
-ApiFunc = Callable[..., Awaitable[T]]
+ApiFunc = Callable[..., Awaitable[Union[T, HTTPValidationError, None]]]
 
 
 class LightRAGClient:
     """
-    Клиент для взаимодействия с LightRAG API.
+    Client for interacting with LightRAG API.
     """
 
     def __init__(
@@ -60,48 +79,56 @@ class LightRAGClient:
         api_key: str = "NOT USED",
     ):
         """
-        Инициализация клиента LightRAG API.
+        Initialize LightRAG API client.
 
         Args:
-            base_url (str): Базовый URL API.
-            api_key (str): API ключ (токен).
+            base_url (str): Base API URL.
+            api_key (str): API key (token).
         """
         self.base_url = base_url
         self.api_key = api_key
         self.client = AuthenticatedClient(base_url=base_url, token=api_key, verify_ssl=False)
-        logger.info(f"Инициализирован клиент LightRAG API: {base_url}")
+        logger.info(f"Initialized LightRAG API client: {base_url}")
 
     async def _handle_exception(self, e: Exception, operation_name: str) -> None:
         """
-        Обработка исключений при вызове API.
+        Handle exceptions when calling API.
 
         Args:
-            e: Исключение
-            operation_name: Название операции для логирования
+            e: Exception
+            operation_name: Operation name for logging
 
         Raises:
-            Exception: Пробрасывает исключение дальше
+            Exception: Re-raises the exception
         """
         if isinstance(e, UnexpectedStatus):
-            # Используем !r для безопасного форматирования бинарных данных
-            logger.error(f"Ошибка HTTP при {operation_name}: {e.status_code} - {e.content!r}")
+            # Using !r for safe formatting of binary data
+            logger.error(f"HTTP error during {operation_name}: {e.status_code} - {e.content!r}")
         else:
-            logger.error(f"Ошибка при {operation_name}: {str(e)}")
+            logger.error(f"Error during {operation_name}: {str(e)}")
 
-    async def _call_api(self, api_func: ApiFunc[T], operation_name: str, **kwargs) -> T:
+    async def _call_api(
+        self,
+        api_func: Callable[..., Awaitable[Union[T, HTTPValidationError, None]]],
+        operation_name: str,
+        **kwargs,
+    ) -> Union[T, HTTPValidationError, None]:
         """
-        Универсальный метод для вызова API функций.
+        Universal method for calling API functions.
 
         Args:
-            api_func: Функция API для вызова
-            operation_name: Название операции для логирования
-            **kwargs: Аргументы для передачи в функцию API
+            api_func: API function to call
+            operation_name: Operation name for logging
+            **kwargs: Additional arguments for the API function
 
         Returns:
-            T: Результат операции (тип зависит от вызываемой функции API)
+            Union[T, HTTPValidationError, None]: API call result
         """
         try:
-            return await api_func(**kwargs)
+            logger.debug(f"Calling API: {operation_name}")
+            result = await api_func(**kwargs)
+            logger.debug(f"API call successful: {operation_name}")
+            return result
         except Exception as e:
             await self._handle_exception(e, operation_name)
             raise
@@ -122,34 +149,35 @@ class LightRAGClient:
         history_turns: int = 10,
     ) -> Union[QueryResponse, HTTPValidationError, None]:
         """
-        Выполнение запроса к LightRAG API.
+        Execute a query to LightRAG API.
 
         Args:
-            query_text (str): Текст запроса
-            mode (str, optional): Режим поиска (global, hybrid, local, mix, naive). По умолчанию "mix".
-            top_k (int, optional): Количество результатов. По умолчанию 10.
-            only_need_context (bool, optional): Возвращать только контекст без создания ответа LLM. По умолчанию False.
-            only_need_prompt (bool, optional): Если True, возвращает только сгенерированный запрос без создания ответа. По умолчанию False.
-            response_type (str, optional): Определяет формат ответа. Примеры: 'Несколько абзацев', 'Один абзац', 'Маркированный список'.
-            max_token_for_text_unit (int, optional): Максимальное количество токенов, разрешенное для каждого полученного текстового фрагмента. По умолчанию 1000.
-            max_token_for_global_context (int, optional): Максимальное количество токенов, выделенное для описания связей в глобальном поиске. По умолчанию 1000.
-            max_token_for_local_context (int, optional): Максимальное количество токенов, выделенное для описания сущностей в локальном поиске. По умолчанию 1000.
-            hl_keywords (list[str], optional): Список ключевых слов высокого уровня для приоритизации в поиске.
-            ll_keywords (list[str], optional): Список ключевых слов низкого уровня для уточнения фокуса поиска.
-            history_turns (int, optional): Количество полных ходов разговора (пары пользователь-ассистент), которые нужно учитывать в контексте ответа. По умолчанию 10.
+            query_text (str): Query text
+            mode (str, optional): Search mode (global, hybrid, local, mix, naive). Default is "mix".
+            response_type (str, optional): Response format. Default is "Multiple Paragraphs".
+            top_k (int, optional): Number of results. Default is 10.
+            only_need_context (bool, optional): Return only context without LLM response. Default is False.
+            only_need_prompt (bool, optional): Return only generated prompt without creating a response. Default is False.
+            max_token_for_text_unit (int, optional): Maximum tokens for each text fragment. Default is 1000.
+            max_token_for_global_context (int, optional): Maximum tokens for global context. Default is 1000.
+            max_token_for_local_context (int, optional): Maximum tokens for local context. Default is 1000.
+            hl_keywords (list[str], optional): List of high-level keywords for prioritization. Default is [].
+            ll_keywords (list[str], optional): List of low-level keywords for search refinement. Default is [].
+            history_turns (int, optional): Number of conversation turns in response context. Default is 10.
 
         Returns:
-            Union[QueryResponse, HTTPValidationError, None]: Результаты запроса
+            Union[QueryResponse, HTTPValidationError, None]: Query result
         """
-        logger.debug("Выполнение запроса к LightRAG")
+        logger.debug(f"Executing query: {query_text[:100]}...")
 
-        query_request = QueryRequest(
+        # Create request
+        request = QueryRequest(
             query=query_text,
-            mode=QueryRequestMode(mode) if mode else UNSET,
+            mode=QueryRequestMode(mode),
+            response_type=response_type,
             top_k=top_k,
             only_need_context=only_need_context,
             only_need_prompt=only_need_prompt,
-            response_type=response_type,
             max_token_for_text_unit=max_token_for_text_unit,
             max_token_for_global_context=max_token_for_global_context,
             max_token_for_local_context=max_token_for_local_context,
@@ -160,9 +188,9 @@ class LightRAGClient:
 
         return await self._call_api(
             api_func=async_query_document,
-            operation_name="выполнении запроса",
+            operation_name="query execution",
             client=self.client,
-            body=query_request,
+            body=request,
         )
 
     async def insert_text(
@@ -170,63 +198,64 @@ class LightRAGClient:
         text: Union[str, List[str]],
     ) -> Union[InsertResponse, HTTPValidationError, None]:
         """
-        Добавление текста в LightRAG.
+        Add text to LightRAG.
 
         Args:
-            text (Union[str, List[str]]): Текст или список текстов для добавления
+            text (Union[str, List[str]]): Text or list of texts to add
 
         Returns:
-            Union[InsertResponse, HTTPValidationError]: Результат операции
+            Union[InsertResponse, HTTPValidationError]: Operation result
         """
-        logger.debug("Добавление текста в LightRAG")
+        logger.debug(f"Adding text: {str(text)[:100]}...")
 
-        if isinstance(text, list):
-            # Если передан список текстов, используем insert_texts
-            return await self._call_api(
-                api_func=async_insert_texts,
-                operation_name="добавлении текстов",
-                client=self.client,
-                body=InsertTextsRequest(
-                    texts=text,
-                ),
-            )
-        else:
-            # Если передан один текст, используем insert_document
+        request: InsertTextRequest | InsertTextsRequest
+        if isinstance(text, str):
+            request = InsertTextRequest(text=text)
             return await self._call_api(
                 api_func=async_insert_document,
-                operation_name="добавлении текста",
+                operation_name="text insertion",
                 client=self.client,
-                body=InsertTextRequest(
-                    text=text,
-                ),
+                body=request,
+            )
+        else:
+            request = InsertTextsRequest(texts=text)
+            return await self._call_api(
+                api_func=async_insert_texts,
+                operation_name="multiple texts insertion",
+                client=self.client,
+                body=request,
             )
 
-    async def upload_document(self, file_path: str) -> Union[Any, HTTPValidationError]:
+    async def upload_document(self, file_path: str) -> Union[Any, HTTPValidationError, None]:
         """
-        Загрузка документов из файла.
+        Upload documents from file.
 
         Args:
-            file_path (str): Путь к файлу.
+            file_path (str): Path to file.
 
         Returns:
-            Union[Any, HTTPValidationError]: Результат операции.
+            Union[Any, HTTPValidationError]: Operation result.
         """
-        logger.debug(f"Загрузка документов из файла: {file_path}")
+        logger.debug(f"Uploading document: {file_path}")
 
-        if not file_path:
-            logger.error("Не указан путь к файлу")
-            raise ValueError("Не указан путь к файлу")
+        path = Path(file_path)
+        if not path.exists():
+            logger.error(f"File not found: {file_path}")
+            raise FileNotFoundError(f"File not found: {file_path}")
 
         try:
             with open(file_path, "rb") as f:
-                upload_request = BodyUploadToInputDirDocumentsUploadPost(file=File(payload=f))
-                result = await self._call_api(
+                file_name = path.name
+                upload_request = BodyUploadToInputDirDocumentsUploadPost(
+                    file=File(payload=f, file_name=file_name)
+                )
+
+                return await self._call_api(
                     api_func=async_upload_document,
-                    operation_name=f"загрузке файла {file_path}",
+                    operation_name=f"file upload {file_path}",
                     client=self.client,
                     body=upload_request,
                 )
-                return result
         except FileNotFoundError:
             logger.error(f"Файл не найден: {file_path}")
             raise
@@ -234,34 +263,36 @@ class LightRAGClient:
             await self._handle_exception(e, f"загрузке файла {file_path}")
             raise
 
-    async def insert_file(self, file_path: str) -> Union[HTTPValidationError, InsertResponse, None]:
+    async def insert_file(self, file_path: str) -> Union[InsertResponse, HTTPValidationError, None]:
         """
-        Добавление документа из файла (аналогично upload_document, но другой эндпоинт).
+        Add document from file (similar to upload_document, but different endpoint).
 
         Args:
-            file_path (str): Путь к файлу.
+            file_path (str): Path to file.
 
         Returns:
-            Union[InsertResponse, HTTPValidationError]: Результат операции.
+            Union[InsertResponse, HTTPValidationError]: Operation result.
         """
-        logger.debug(f"Добавление файла: {file_path}")
+        logger.debug(f"Adding file: {file_path}")
 
-        # Проверка входных параметров
-        if not file_path:
-            logger.error("Не указан путь к файлу")
-            raise ValueError("Не указан путь к файлу")
+        path = Path(file_path)
+        if not path.exists():
+            logger.error(f"File not found: {file_path}")
+            raise FileNotFoundError(f"File not found: {file_path}")
 
         try:
             with open(file_path, "rb") as f:
-                # Используем правильный класс BodyInsertFileDocumentsFilePost
-                insert_file_request = BodyInsertFileDocumentsFilePost(file=File(payload=f))
-                result = await self._call_api(
+                file_name = path.name
+                insert_file_request = BodyInsertFileDocumentsFilePost(
+                    file=File(payload=f, file_name=file_name)
+                )
+
+                return await self._call_api(
                     api_func=async_insert_file,
-                    operation_name=f"добавлении файла {file_path}",
+                    operation_name=f"file insertion {file_path}",
                     client=self.client,
                     body=insert_file_request,
                 )
-                return result
         except FileNotFoundError:
             logger.error(f"Файл не найден: {file_path}")
             raise
@@ -270,75 +301,138 @@ class LightRAGClient:
             raise
 
     async def insert_batch(
-        self, directory_path: str
+        self,
+        directory_path: str,
+        recursive: bool = False,
+        depth: int = 1,
+        include_only: list[str] = [],
+        ignore_directories: list[str] = [],
+        ignore_files: list[str] = [],
     ) -> Union[InsertResponse, HTTPValidationError, None]:
         """
-        Добавление пакета документов из директории.
+        Add batch of documents from directory.
 
         Args:
-            directory_path (str): Путь к директории.
+            directory_path (str): Path to directory.
+            recursive (bool, optional): Recursive addition. Defaults to False.
+            depth (int, optional): Recursion depth. Defaults to 1.
+            ignore_directories (list[str], optional): List of regexp to exclude directories from batch insertion. Defaults to [].
+            ignore_files (list[str], optional): List of regexp to exclude files from batch insertion. Defaults to []. Either ignore_files or include_only must be specified, not both.
+            include_only (list[str], optional): List of regexp to specify files to include. Defaults to []. Either include_only or ignore_files must be specified, not both.
 
         Returns:
-            Union[InsertResponse, HTTPValidationError]: Результат операции.
+            Union[InsertResponse, HTTPValidationError]: Operation result.
         """
-        logger.debug(f"Добавление пакета файлов из директории: {directory_path}")
+        logger.debug(
+            f"Adding batch of documents from directory: {directory_path} (recursive={recursive}, depth={depth})"
+        )
 
-        # Проверка входных параметров
-        if not directory_path:
-            logger.error("Не указан путь к директории")
-            raise ValueError("Не указан путь к директории")
+        # Validate that include_only and ignore_files are not both specified
+        if include_only and ignore_files:
+            error_message = "Cannot specify both include_only and ignore_files parameters"
+            logger.error(error_message)
+            raise ValueError(error_message)
 
-        directory = Path(directory_path)
-        if not directory.exists() or not directory.is_dir():
-            logger.error(f"Директория не существует или не является директорией: {directory_path}")
-            raise ValueError(
-                f"Директория не существует или не является директорией: {directory_path}"
-            )
+        dir_path = Path(directory_path)
+        if not dir_path.exists() or not dir_path.is_dir():
+            logger.error(f"Directory not found: {directory_path}")
+            raise FileNotFoundError(f"Directory not found: {directory_path}")
 
-        # Получаем список всех файлов в директории (без рекурсии)
-        files_list = []
-        for file_path in directory.iterdir():
-            if file_path.is_file():
-                try:
-                    # Открываем файл и добавляем его в список
-                    with open(file_path, "rb") as f:
-                        files_list.append(File(payload=f))
-                except Exception as e:
-                    logger.warning(f"Не удалось открыть файл {file_path}: {e}")
+        # Compile regular expressions for better performance
+        include_patterns = [re.compile(pattern) for pattern in include_only] if include_only else []
+        ignore_dir_patterns = [re.compile(pattern) for pattern in ignore_directories] if ignore_directories else []
+        ignore_file_patterns = [re.compile(pattern) for pattern in ignore_files] if ignore_files else []
 
-        if not files_list:
-            logger.warning(f"В директории {directory_path} не найдено файлов")
-            return None
+        # Collect file paths
+        def collect_file_paths(dir_path: Path, current_depth: int = 0) -> List[Path]:
+            """Recursively collect file paths from directory"""
+            file_paths = []
+            try:
+                for item in dir_path.iterdir():
+                    if item.is_dir() and recursive and current_depth < depth:
+                        # Check if directory should be ignored
+                        dir_name = item.name
+                        if any(pattern.search(dir_name) for pattern in ignore_dir_patterns):
+                            logger.debug(f"Ignoring directory: {item} (matched ignore pattern)")
+                            continue
+                        
+                        # Process subdirectory
+                        file_paths.extend(collect_file_paths(item, current_depth + 1))
+                    elif item.is_file():
+                        file_name = item.name
+                        
+                        # Apply include_only filter if specified
+                        if include_patterns:
+                            if any(pattern.search(file_name) for pattern in include_patterns):
+                                file_paths.append(item)
+                                logger.debug(f"Including file: {item} (matched include pattern)")
+                            else:
+                                logger.debug(f"Skipping file: {item} (did not match any include pattern)")
+                            continue
+                        
+                        # Apply ignore_files filter if specified
+                        if ignore_file_patterns:
+                            if any(pattern.search(file_name) for pattern in ignore_file_patterns):
+                                logger.debug(f"Ignoring file: {item} (matched ignore pattern)")
+                                continue
+                        
+                        # If we got here, the file is not filtered out
+                        file_paths.append(item)
+            except Exception as e:
+                logger.error(f"Error collecting files from {dir_path}: {str(e)}")
+            return file_paths
 
         try:
-            # Создаем запрос для пакетной обработки
-            batch_request = BodyInsertBatchDocumentsFileBatchPost(files=files_list)
+            # Collect file paths
+            file_paths = collect_file_paths(dir_path)
+            logger.info(f"Found {len(file_paths)} files for processing after applying filters")
 
-            # Отправляем запрос
-            result = await self._call_api(
-                api_func=async_insert_batch,
-                operation_name=f"добавлении пакета из {directory_path}",
-                client=self.client,
-                body=batch_request,
-            )
-            return result
+            # Process each file
+            success_count = 0
+            failed_files = []
+
+            for file_path in file_paths:
+                try:
+                    await self.insert_file(str(file_path))
+                    success_count += 1
+                    logger.debug(f"Successfully inserted file: {file_path}")
+                except Exception as e:
+                    logger.error(f"Error inserting file {file_path}: {str(e)}")
+                    failed_files.append(str(file_path))
+
+            # Build response
+            if success_count == len(file_paths):
+                status = "success"
+                message = f"All {success_count} documents inserted successfully"
+            elif success_count > 0:
+                status = "partial_success"
+                message = (
+                    f"Successfully inserted {success_count} out of {len(file_paths)} documents"
+                )
+                if failed_files:
+                    message += f". Failed files: {', '.join(failed_files)}"
+            else:
+                status = "failure"
+                message = "No documents were successfully inserted"
+                if failed_files:
+                    message += f". Failed files: {', '.join(failed_files)}"
+
+            return InsertResponse(status=status, message=message)
         except Exception as e:
-            await self._handle_exception(e, f"добавлении пакета из {directory_path}")
+            await self._handle_exception(e, f"inserting batch from {directory_path}")
             raise
 
     async def scan_for_new_documents(self) -> Union[Any, HTTPValidationError]:
         """
-        Запуск сканирования директории на наличие новых документов.
+        Start scanning directory for new documents.
 
         Returns:
-            Union[Any, HTTPValidationError]: Результат операции.
+            Union[Any, HTTPValidationError]: Operation result.
         """
-        logger.debug("Запуск сканирования директории")
-
-        # Функция async_scan_for_new_documents не принимает параметр body, только client
+        logger.debug("Starting scan for new documents...")
         return await self._call_api(
             api_func=async_scan_for_new_documents,
-            operation_name="сканировании директории",
+            operation_name="scanning for new documents",
             client=self.client,
         )
 
@@ -346,15 +440,15 @@ class LightRAGClient:
         self,
     ) -> Union[DocsStatusesResponse, HTTPValidationError, None]:
         """
-        Получение списка всех загруженных документов.
+        Get list of all uploaded documents.
 
         Returns:
-            Union[DocsStatusesResponse, HTTPValidationError]: Список документов.
+            Union[DocsStatusesResponse, HTTPValidationError]: List of documents.
         """
-        logger.debug("Получение списка документов...")
+        logger.debug("Getting list of documents...")
         return await self._call_api(
             api_func=async_get_documents,
-            operation_name="получении списка документов",
+            operation_name="getting documents list",
             client=self.client,
         )
 
@@ -362,47 +456,267 @@ class LightRAGClient:
         self,
     ) -> Union[PipelineStatusResponse, HTTPValidationError, None]:
         """
-        Получение статуса обработки документов в пайплайне.
+        Get status of document processing in pipeline.
 
         Returns:
-            Union[PipelineStatusResponse, HTTPValidationError]: Статус пайплайна.
+            Union[PipelineStatusResponse, HTTPValidationError]: Pipeline status.
         """
-        logger.debug("Получение статуса пайплайна...")
+        logger.debug("Getting pipeline status...")
         return await self._call_api(
             api_func=async_get_pipeline_status,
-            operation_name="получении статуса обработки",
+            operation_name="getting pipeline status",
             client=self.client,
         )
 
-    async def get_graph_labels(self) -> Union[Any, HTTPValidationError]:
+    async def get_graph_labels(self) -> Union[Dict[str, List[str]], HTTPValidationError, None]:
         """
-        Получение меток (типов узлов и связей) из графа знаний.
+        Get labels (node and relationship types) from knowledge graph.
 
         Returns:
-            Union[Any, HTTPValidationError]: Метки графа.
+            Union[Dict[str, List[str]], HTTPValidationError]: Graph labels.
         """
-        logger.debug("Получение меток графа...")
+        logger.debug("Getting graph labels...")
         return await self._call_api(
             api_func=async_get_graph_labels,
-            operation_name="получении меток графа",
+            operation_name="getting graph labels",
             client=self.client,
+        )
+
+    async def delete_by_entity(
+        self, entity_name: str
+    ) -> Union[StatusMessageResponse, HTTPValidationError, None]:
+        """
+        Delete entity from knowledge graph by name.
+
+        Args:
+            entity_name (str): Entity name
+
+        Returns:
+            Union[StatusMessageResponse, HTTPValidationError]: Operation result.
+        """
+        logger.debug(f"Deleting entity by name: {entity_name}")
+
+        return await self._call_api(
+            api_func=async_delete_entity,
+            operation_name=f"deletion by entity name: {entity_name}",
+            client=self.client,
+            entity_name=entity_name,
+        )
+
+    async def delete_by_doc_id(
+        self, doc_id: str
+    ) -> Union[StatusMessageResponse, HTTPValidationError, None]:
+        """
+        Delete all entities and relationships associated with a document.
+
+        Args:
+            doc_id (str): Document ID
+
+        Returns:
+            Union[StatusMessageResponse, HTTPValidationError]: Operation result.
+        """
+        logger.debug(f"Deleting entities by document ID: {doc_id}")
+
+        return await self._call_api(
+            api_func=async_delete_by_doc_id,
+            operation_name=f"deletion by document ID: {doc_id}",
+            client=self.client,
+            doc_id=doc_id,
+        )
+
+    async def create_entity(
+        self, entity_name: str, entity_type: str, description: str, source_id: str
+    ) -> Union[EntityResponse, HTTPValidationError, None]:
+        """
+        Create new entity in knowledge graph.
+
+        Args:
+            entity_name (str): Entity name.
+            entity_type (str): Entity type.
+            description (str): Entity description.
+            source_id (str): Source ID (document).
+
+        Returns:
+            Union[EntityResponse, HTTPValidationError]: Created entity.
+        """
+        logger.debug(f"Creating entity: {entity_name} (type={entity_type})")
+
+        request = EntityRequest(
+            entity_type=entity_type,
+            description=description,
+            source_id=source_id,
+        )
+
+        return await self._call_api(
+            api_func=async_create_entity,
+            operation_name="entity creation",
+            client=self.client,
+            entity_name=entity_name,
+            body=request,
+        )
+
+    async def edit_entity(
+        self, entity_name: str, entity_type: str, description: str, source_id: str
+    ) -> Union[EntityResponse, HTTPValidationError, None]:
+        """
+        Edit existing entity in knowledge graph.
+
+        Args:
+            entity_name (str): Entity name.
+            entity_type (str): New entity type.
+            description (str): New entity description.
+            source_id (str): Source ID (document).
+
+        Returns:
+            Union[EntityResponse, HTTPValidationError]: Updated entity.
+        """
+        logger.debug(f"Editing entity: {entity_name}")
+
+        request = EntityRequest(
+            entity_type=entity_type,
+            description=description,
+            source_id=source_id,
+        )
+
+        return await self._call_api(
+            api_func=async_edit_entity,
+            operation_name="entity editing",
+            client=self.client,
+            entity_name=entity_name,
+            body=request,
+        )
+
+    async def create_relation(
+        self,
+        source: str,
+        target: str,
+        description: str,
+        keywords: str,
+        source_id: str | None,
+        weight: float | None,
+    ) -> Union[relation_response.RelationResponse, HTTPValidationError, None]:
+        """
+        Create relationship between entities in knowledge graph.
+
+        Args:
+            source (str): Source entity name.
+            target (str): Target entity name.
+            description (str): Relationship description.
+            keywords (str): Keywords for relationship.
+            source_id (str | None): Source ID (document).
+            weight (float | None): Relationship weight.
+
+        Returns:
+            Union[relation_response.RelationResponse, HTTPValidationError]: Created relationship.
+        """
+        logger.debug(f"Creating relationship: {source} -> {target}")
+
+        request = relation_request.RelationRequest(
+            description=description,
+            keywords=keywords,
+            source_id=source_id,
+            weight=weight,
+        )
+
+        return await self._call_api(
+            api_func=async_create_relation,
+            operation_name="relationship creation",
+            client=self.client,
+            source=source,
+            target=target,
+            body=request,
+        )
+
+    async def edit_relation(
+        self,
+        source: str,
+        target: str,
+        description: str,
+        keywords: str,
+        source_id: str | None,
+        weight: float | None,
+        relation_type: str,
+    ) -> Union[relation_response.RelationResponse, HTTPValidationError, None]:
+        """
+        Edit relationship between entities.
+
+        Args:
+            source (str): Source entity name.
+            target (str): Target entity name.
+            properties (Dict[str, Any]): New relationship properties.
+
+        Returns:
+            Union[Dict, HTTPValidationError]: Updated relationship.
+        """
+        logger.debug(f"Editing relationship: {source} -> {target}")
+
+        request = relation_request.RelationRequest(
+            description=description,
+            keywords=keywords,
+            source_id=source_id,
+            weight=weight,
+        )
+
+        return await self._call_api(
+            api_func=async_edit_relation,
+            operation_name="relationship editing",
+            client=self.client,
+            source=source,
+            target=target,
+            body=request,
+            relation_type=relation_type,
+        )
+
+    async def merge_entities(
+        self,
+        source_entities: List[str],
+        target_entity: str,
+        merge_strategy: Dict[str, str],
+    ) -> Union[EntityResponse, HTTPValidationError, None]:
+        """
+        Merge multiple entities into one with relationship migration.
+
+        Args:
+            source_entities (List[str]): List of entity names to merge.
+            target_entity (str): Target entity name.
+            merge_strategy (Dict[str, str], optional): Property merge strategy.
+                Possible values for strategies: 'max', 'min', 'concat', 'first', 'last'
+                Example: {"description": "concat", "weight": "max"}
+
+        Returns:
+            Union[Dict, HTTPValidationError]: Merge operation result.
+        """
+        logger.debug(f"Merging entities: {', '.join(source_entities)} -> {target_entity}")
+
+        # Create request body
+        request = MergeEntitiesRequest(
+            source_entities=source_entities,
+            target_entity=target_entity,
+            merge_strategy=MergeEntitiesRequestMergeStrategyType0.from_dict(merge_strategy),
+        )
+
+        return await self._call_api(
+            api_func=async_merge_entities,
+            operation_name="entity merging",
+            client=self.client,
+            body=request,
         )
 
     async def get_health(self) -> Union[Any, HTTPValidationError]:
         """
-        Проверка состояния здоровья сервиса LightRAG.
+        Check health status of LightRAG service.
 
         Returns:
-            Union[Any, HTTPValidationError]: Статус здоровья.
+            Union[Any, HTTPValidationError]: Health status.
         """
-        logger.debug("Проверка состояния здоровья сервиса...")
+        logger.debug("Checking service health status...")
         return await self._call_api(
             api_func=async_get_health,
-            operation_name="проверке состояния",
+            operation_name="health check",
             client=self.client,
         )
 
     async def close(self):
-        """Закрытие HTTP клиента."""
-        await self.client.get_async_client().aclose()
-        logger.info("Клиент LightRAG API закрыт.")
+        """Close HTTP client."""
+        await self.client.get_async_httpx_client().aclose()
+        logger.info("LightRAG API client closed.")
