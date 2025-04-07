@@ -4,19 +4,21 @@ on:
   push:
     tags:
       - "v*.*.*"
-  # Добавляем возможность ручного запуска
   workflow_dispatch:
 
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
-    environment: pypi  # Совпадает с Trusted Publisher
+    environment: pypi
     permissions:
+      contents: read
       id-token: write
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Set up Python
       uses: actions/setup-python@v5
