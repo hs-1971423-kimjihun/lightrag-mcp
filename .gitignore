@@ -43,7 +43,9 @@ ENV/
 # Project specific
 rag_storage/
 input/
+inputs/
 *.log
+*.log.*
 LightRAG/
 .windsurfrules
 

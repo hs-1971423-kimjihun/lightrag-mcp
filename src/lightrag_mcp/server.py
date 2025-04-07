@@ -17,7 +17,6 @@ from lightrag_mcp.lightrag_client import LightRAGClient
 
 logger = logging.getLogger(__name__)
 
-# Creating MCP server
 mcp = FastMCP("LightRAG MCP Server")
 
 
@@ -66,9 +65,6 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
     Manages application lifecycle with typed context.
     Initializes LightRAG API client at startup and closes it at shutdown.
     """
-    logger.info("Initializing LightRAG MCP Server")
-
-    # Create LightRAG client instance
     lightrag_client = LightRAGClient(
         base_url=config.LIGHTRAG_API_BASE_URL,
         api_key=config.LIGHTRAG_API_KEY,
@@ -77,12 +73,10 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
     try:
         yield AppContext(lightrag_client=lightrag_client)
     finally:
-        # Close client when finished
         await lightrag_client.close()
         logger.info("LightRAG MCP Server stopped")
 
 
-# Apply lifespan to server
 mcp = FastMCP("LightRAG MCP Server", lifespan=app_lifespan)
 
 
@@ -106,20 +100,16 @@ async def execute_lightrag_operation(
         Dict[str, Any]: Formatted response
     """
     try:
-        # Get request context
         if not ctx or not ctx.request_context or not ctx.request_context.lifespan_context:
             return format_response(
                 f"Error: Request context is not available for {operation_name}", is_error=True
             )
 
-        # Get client from context
         app_ctx = cast(AppContext, ctx.request_context.lifespan_context)
         client = app_ctx.lightrag_client
 
-        # Execute operation
         logger.info(f"Executing operation: {operation_name}")
         result = await operation_func(client)
-        logger.info(f"Operation completed successfully: {operation_name}")
 
         return format_response(result)
     except Exception as e:
@@ -138,7 +128,7 @@ async def query_document(
         description="Search mode (mix, semantic, keyword, global, hybrid, local, naive)",
         default="mix",
     ),
-    top_k: int = Field(description="Number of results", default=10),
+    top_k: int = Field(description="Number of results", default=60),
     only_need_context: bool = Field(
         description="Return only context without LLM response", default=False
     ),
@@ -151,13 +141,13 @@ async def query_document(
         default="Multiple Paragraphs",
     ),
     max_token_for_text_unit: int = Field(
-        description="Maximum tokens for each text fragment", default=1000
+        description="Maximum tokens for each text fragment", default=4096
     ),
     max_token_for_global_context: int = Field(
-        description="Maximum tokens for global context", default=1000
+        description="Maximum tokens for global context", default=4096
     ),
     max_token_for_local_context: int = Field(
-        description="Maximum tokens for local context", default=1000
+        description="Maximum tokens for local context", default=4096
     ),
     hl_keywords: list[str] = Field(
         description="List of high-level keywords for prioritization", default=[]
@@ -209,7 +199,7 @@ async def insert_document(
 
 @mcp.tool(
     name="upload_document",
-    description="Upload document from file to LightRAG's /input directory and start indexing",
+    description="Upload document from file to LightRAG's /inputs directory and start indexing",
 )
 async def upload_document(
     ctx: Context,
@@ -290,7 +280,7 @@ async def insert_batch(
 
 @mcp.tool(
     name="scan_for_new_documents",
-    description="Start scanning LightRAG /input directory for new documents",
+    description="Start scanning LightRAG /inputs directory for new documents",
 )
 async def scan_for_new_documents(ctx: Context) -> Dict[str, Any]:
     async def _operation(client: LightRAGClient) -> Any:
@@ -718,8 +708,8 @@ async def create_relations(
 
     Args:
         relations: List of relation dictionaries with required fields:
-                 source, target, description, keywords
-                 and optional fields: source_id, weight
+                source, target, description, keywords
+                and optional fields: source_id, weight
 
     Returns:
         Dictionary with creation results for each relationship
@@ -827,8 +817,8 @@ async def edit_relations(
 
     Args:
         relations: List of relation dictionaries with required fields:
-                 source, target, description, keywords, relation_type
-                 and optional fields: source_id, weight
+                source, target, description, keywords, relation_type
+                and optional fields: source_id, weight
 
     Returns:
         Dictionary with edit results for each relationship

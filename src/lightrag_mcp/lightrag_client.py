@@ -3,9 +3,9 @@ Client for interacting with LightRAG API.
 """
 
 import logging
+import re
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, TypeVar, Union
-import re
 
 from lightrag_mcp.client.light_rag_server_api_client.api.default import async_get_health
 from lightrag_mcp.client.light_rag_server_api_client.api.documents import (
@@ -63,7 +63,6 @@ from .client.light_rag_server_api_client.errors import UnexpectedStatus
 
 logger = logging.getLogger(__name__)
 
-# Definition of type for API functions
 T = TypeVar("T", covariant=True)
 ApiFunc = Callable[..., Awaitable[Union[T, HTTPValidationError, None]]]
 
@@ -76,7 +75,7 @@ class LightRAGClient:
     def __init__(
         self,
         base_url: str,
-        api_key: str = "NOT USED",
+        api_key: str,
     ):
         """
         Initialize LightRAG API client.
@@ -102,7 +101,6 @@ class LightRAGClient:
             Exception: Re-raises the exception
         """
         if isinstance(e, UnexpectedStatus):
-            # Using !r for safe formatting of binary data
             logger.error(f"HTTP error during {operation_name}: {e.status_code} - {e.content!r}")
         else:
             logger.error(f"Error during {operation_name}: {str(e)}")
@@ -170,7 +168,6 @@ class LightRAGClient:
         """
         logger.debug(f"Executing query: {query_text[:100]}...")
 
-        # Create request
         request = QueryRequest(
             query=query_text,
             mode=QueryRequestMode(mode),
@@ -228,7 +225,7 @@ class LightRAGClient:
 
     async def upload_document(self, file_path: str) -> Union[Any, HTTPValidationError, None]:
         """
-        Upload documents from file.
+        Upload document from file to LightRAG's /input directory and start indexing.
 
         Args:
             file_path (str): Path to file.
@@ -265,7 +262,7 @@ class LightRAGClient:
 
     async def insert_file(self, file_path: str) -> Union[InsertResponse, HTTPValidationError, None]:
         """
-        Add document from file (similar to upload_document, but different endpoint).
+        Add document from a file_path directly to LightRAG storage, without uploading to /input directory.
 
         Args:
             file_path (str): Path to file.
@@ -327,7 +324,6 @@ class LightRAGClient:
             f"Adding batch of documents from directory: {directory_path} (recursive={recursive}, depth={depth})"
         )
 
-        # Validate that include_only and ignore_files are not both specified
         if include_only and ignore_files:
             error_message = "Cannot specify both include_only and ignore_files parameters"
             logger.error(error_message)
@@ -338,12 +334,14 @@ class LightRAGClient:
             logger.error(f"Directory not found: {directory_path}")
             raise FileNotFoundError(f"Directory not found: {directory_path}")
 
-        # Compile regular expressions for better performance
         include_patterns = [re.compile(pattern) for pattern in include_only] if include_only else []
-        ignore_dir_patterns = [re.compile(pattern) for pattern in ignore_directories] if ignore_directories else []
-        ignore_file_patterns = [re.compile(pattern) for pattern in ignore_files] if ignore_files else []
+        ignore_dir_patterns = (
+            [re.compile(pattern) for pattern in ignore_directories] if ignore_directories else []
+        )
+        ignore_file_patterns = (
+            [re.compile(pattern) for pattern in ignore_files] if ignore_files else []
+        )
 
-        # Collect file paths
         def collect_file_paths(dir_path: Path, current_depth: int = 0) -> List[Path]:
             """Recursively collect file paths from directory"""
             file_paths = []
@@ -355,27 +353,29 @@ class LightRAGClient:
                         if any(pattern.search(dir_name) for pattern in ignore_dir_patterns):
                             logger.debug(f"Ignoring directory: {item} (matched ignore pattern)")
                             continue
-                        
+
                         # Process subdirectory
                         file_paths.extend(collect_file_paths(item, current_depth + 1))
                     elif item.is_file():
                         file_name = item.name
-                        
+
                         # Apply include_only filter if specified
                         if include_patterns:
                             if any(pattern.search(file_name) for pattern in include_patterns):
                                 file_paths.append(item)
                                 logger.debug(f"Including file: {item} (matched include pattern)")
                             else:
-                                logger.debug(f"Skipping file: {item} (did not match any include pattern)")
+                                logger.debug(
+                                    f"Skipping file: {item} (did not match any include pattern)"
+                                )
                             continue
-                        
+
                         # Apply ignore_files filter if specified
                         if ignore_file_patterns:
                             if any(pattern.search(file_name) for pattern in ignore_file_patterns):
                                 logger.debug(f"Ignoring file: {item} (matched ignore pattern)")
                                 continue
-                        
+
                         # If we got here, the file is not filtered out
                         file_paths.append(item)
             except Exception as e:
@@ -383,11 +383,9 @@ class LightRAGClient:
             return file_paths
 
         try:
-            # Collect file paths
             file_paths = collect_file_paths(dir_path)
             logger.info(f"Found {len(file_paths)} files for processing after applying filters")
 
-            # Process each file
             success_count = 0
             failed_files = []
 
@@ -400,7 +398,6 @@ class LightRAGClient:
                     logger.error(f"Error inserting file {file_path}: {str(e)}")
                     failed_files.append(str(file_path))
 
-            # Build response
             if success_count == len(file_paths):
                 status = "success"
                 message = f"All {success_count} documents inserted successfully"
@@ -424,7 +421,7 @@ class LightRAGClient:
 
     async def scan_for_new_documents(self) -> Union[Any, HTTPValidationError]:
         """
-        Start scanning directory for new documents.
+        Start scanning LightRAG's /input directory for new documents.
 
         Returns:
             Union[Any, HTTPValidationError]: Operation result.
@@ -440,7 +437,7 @@ class LightRAGClient:
         self,
     ) -> Union[DocsStatusesResponse, HTTPValidationError, None]:
         """
-        Get list of all uploaded documents.
+        Get list of all documents in LightRAG.
 
         Returns:
             Union[DocsStatusesResponse, HTTPValidationError]: List of documents.
@@ -470,7 +467,7 @@ class LightRAGClient:
 
     async def get_graph_labels(self) -> Union[Dict[str, List[str]], HTTPValidationError, None]:
         """
-        Get labels (node and relationship types) from knowledge graph.
+        Get graph labels from knowledge graph.
 
         Returns:
             Union[Dict[str, List[str]], HTTPValidationError]: Graph labels.
@@ -688,7 +685,6 @@ class LightRAGClient:
         """
         logger.debug(f"Merging entities: {', '.join(source_entities)} -> {target_entity}")
 
-        # Create request body
         request = MergeEntitiesRequest(
             source_entities=source_entities,
             target_entity=target_entity,

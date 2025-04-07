@@ -1,121 +1,157 @@
 # LightRAG MCP Server
 
-MCP-сервер для интеграции с LightRAG API. Этот сервер позволяет использовать возможности LightRAG через интерфейс Model Context Protocol (MCP).
+MCP server for integrating LightRAG with AI tools. Provides a unified interface for interacting with LightRAG API through the MCP protocol.
 
-## Возможности
+## Description
 
-- Интеграция с LightRAG API для поиска и извлечения информации из документов
-- Предоставление доступа к WebUI LightRAG
-- API для загрузки и управления документами
-- Поддержка различных режимов поиска (hybrid, semantic, keyword)
+LightRAG MCP Server is a bridge between LightRAG API and MCP-compatible clients. It allows using LightRAG (Retrieval-Augmented Generation) capabilities in various AI tools that support the MCP protocol.
 
-## Установка
+### Key Features
 
-### Предварительные требования
+- **Information Retrieval**: Execute semantic and keyword queries to documents
+- **Document Management**: Upload, index, and track document status
+- **Knowledge Graph Operations**: Manage entities and relationships in the knowledge graph
+- **Monitoring**: Check LightRAG API status and document processing
 
-- Python 3.10 или выше
-- uv (для управления зависимостями)
-- LightRAG (должен быть доступен в системе)
+## Installation
 
-### Установка с помощью uv
+This server is designed to be used as an MCP server and should be installed in a virtual environment using uv, not as a system-wide package.
+
+### Development Installation
 
 ```bash
-# Клонирование репозитория
-git clone https://github.com/yourusername/lightrag-mcp.git
-cd lightrag-mcp
+# Create a virtual environment
+uv venv --python 3.11
 
-# Установка зависимостей
+# Install the package in development mode
 uv pip install -e .
-
-# Для разработки
-uv pip install -e ".[dev]"
 ```
 
-## Конфигурация
+## Requirements
 
-Создайте файл `.env` в корневой директории проекта:
+- Python 3.11+
+- Running LightRAG API server
 
-```bash
-# LightRAG API settings
-LIGHTRAG_API_HOST="localhost"
-LIGHTRAG_API_PORT=9621
-LIGHTRAG_API_KEY="your-api-key-here"
+## Usage
 
-# Параметры для MCP сервера
-HOST="0.0.0.0"
-PORT=8000
-TIMEOUT=150
+**Important**: LightRAG MCP server should only be run as an MCP server through an MCP client configuration file (mcp-config.json).
 
-# API ключи
-MCP_API_KEY="your-mcp-api-key-here"
-```
+### Command Line Options
 
-## Использование
+The following arguments are available when configuring the server in mcp-config.json:
 
-### Запуск сервера
+- `--host`: LightRAG API host (default: localhost)
+- `--port`: LightRAG API port (default: 9621)
+- `--api-key`: LightRAG API key (optional)
 
-> **ВАЖНО**: Перед запуском MCP сервера необходимо запустить LightRAG API сервер вручную. MCP сервер не запускает LightRAG API автоматически.
+### Integration with LightRAG API
+
+The MCP server requires a running LightRAG API server. Start it as follows:
 
 ```bash
-# Запуск MCP сервера
-lightrag-mcp
+# Create virtual environment
+uv venv --python 3.11
 
-# Запуск с указанием порта и хоста
-lightrag-mcp --host 127.0.0.1 --port 8000
+# Install dependencies
+uv pip install -r LightRAG/lightrag/api/requirements.txt
 
-# Запуск с подробным логированием
-lightrag-mcp --log-level DEBUG
-```
-
-### Использование с существующим LightRAG API
-
-1. Запустите LightRAG API сервер отдельно:
-```bash
+# Start LightRAG API
 uv run LightRAG/lightrag/api/lightrag_server.py --host localhost --port 9621 --working-dir ./rag_storage --input-dir ./input --llm-binding openai --embedding-binding openai --log-level DEBUG
 ```
 
-2. Запустите MCP сервер:
+### Setting up as MCP server
+
+To set up LightRAG MCP as an MCP server, add the following configuration to your MCP client configuration file (e.g., `mcp-config.json`):
+
+#### Using uvenv (uvx):
+
+```json
+{
+  "mcpServers": {
+    "lightrag-mcp": {
+      "command": "uvx",
+      "args": [
+        "lightrag_mcp",
+        "--host",
+        "localhost",
+        "--port",
+        "9621",
+        "--api-key",
+        "your_api_key"
+      ]
+    }
+  }
+}
+```
+
+#### Development
+
+```json
+{
+  "mcpServers": {
+    "lightrag-mcp": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/path/to/lightrag_mcp",
+        "run",
+        "src/lightrag_mcp/main.py",
+        "--host",
+        "localhost",
+        "--port",
+        "9621",
+        "--api-key",
+        "your_api_key"
+      ]
+    }
+  }
+}
+```
+
+Replace `/path/to/lightrag_mcp` with the actual path to your lightrag-mcp directory.
+
+## Available MCP Tools
+
+### Document Queries
+- `query_document`: Execute a query to documents through LightRAG API
+
+### Document Management
+- `insert_document`: Add text directly to LightRAG storage
+- `upload_document`: Upload document from file to the /input directory
+- `insert_file`: Add document from file directly to storage
+- `insert_batch`: Add batch of documents from directory
+- `scan_for_new_documents`: Start scanning the /input directory for new documents
+- `get_documents`: Get list of all uploaded documents
+- `get_pipeline_status`: Get status of document processing in pipeline
+
+### Knowledge Graph Operations
+- `get_graph_labels`: Get labels (node and relationship types) from knowledge graph
+- `create_entities`: Create multiple entities in knowledge graph
+- `edit_entities`: Edit multiple existing entities in knowledge graph
+- `delete_by_entities`: Delete multiple entities from knowledge graph by name
+- `delete_by_doc_ids`: Delete all entities and relationships associated with multiple documents
+- `create_relations`: Create multiple relationships between entities in knowledge graph
+- `edit_relations`: Edit multiple relationships between entities in knowledge graph
+- `merge_entities`: Merge multiple entities into one with relationship migration
+
+### Monitoring
+- `check_lightrag_health`: Check LightRAG API status
+
+## Development
+
+### Installing development dependencies
+
 ```bash
-lightrag-mcp
+uv pip install -e ".[dev]"
 ```
 
-### Доступ к WebUI
-
-После запуска LightRAG API (отдельно или через MCP-сервер), WebUI доступен по адресу:
-```
-http://localhost:9621/
-```
-
-## API
-
-### MCP Ресурсы
-
-- `document://{doc_id}` - Получение информации о документе по ID
-- `config://lightrag` - Получение конфигурации LightRAG
-- `ui://lightrag` - Получение URL для доступа к WebUI LightRAG
-
-### MCP Инструменты
-
-- `query_document` - Выполнение поиска в документах
-- `insert_document` - Добавление документа в LightRAG
-- `upload_document` - Загрузка файла в LightRAG
-- `delete_document` - Удаление документа из LightRAG
-- `check_lightrag_health` - Проверка состояния LightRAG API
-
-## Разработка
+### Running linters
 
 ```bash
-# Запуск тестов
-pytest
-
-# Форматирование кода
-black .
-isort .
-
-# Проверка типов
-mypy .
+ruff check src/
+mypy src/
 ```
 
-## Лицензия
+## License
 
-[MIT License](LICENSE)
+MIT

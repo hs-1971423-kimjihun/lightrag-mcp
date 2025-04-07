@@ -3,28 +3,26 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "lightrag-mcp"
+name = "lightrag_mcp"
 version = "0.1.0"
-description = "MCP Server для LightRAG"
-requires-python = ">=3.10"
+description = "MCP Server for LightRAG"
+requires-python = ">=3.11"
 readme = "README.md"
 authors = [
-    {name = "Author", email = "author@example.com"},
+    {name = "shemhamforash", email = "killsterak16@gmail.com"},
 ]
 dependencies = [
-    "mcp>=0.2.0",
-    "httpx>=0.25.0",
-    "pydantic>=2.0.0",
-    "python-dotenv>=1.0.0",
+    "mcp>=1.2.0",
+    "httpx>=0.28.1",
+    "pydantic>=2.11",
+    "python-dotenv>=1.0.1",
+    "attrs>=25.3.0"
 ]
 
 [project.optional-dependencies]
 dev = [
     "mypy>=1.5.0",
-    "black>=23.7.0",
-    "isort>=5.12.0",
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.21.1",
+    "ruff>=0.11.4"
 ]
 
 [project.scripts]
