@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*.*.*"
+  # Добавляем возможность ручного запуска
+  workflow_dispatch:
 
 jobs:
   build-and-publish:
