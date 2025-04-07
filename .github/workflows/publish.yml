@@ -28,6 +28,7 @@ jobs:
     - name: Install uv and build tools
       run: |
         pipx install uv
+        uv venv --python 3.11
         uv pip install build
 
     - name: Build package
