@@ -1,0 +1,59 @@
+# Smithery configuration file: https://smithery.ai/docs/build/project-config
+
+# Use container runtime for Python projects
+runtime: "container"
+
+# Build configuration
+build:
+  dockerfile: "Dockerfile"
+  dockerBuildPath: "."
+
+# Start command configuration
+startCommand:
+  type: "stdio"
+  configSchema:
+    # JSON Schema defining the configuration options for the MCP
+    type: object
+    properties:
+      host:
+        type: string
+        description: "LightRAG API host address"
+        default: "43.200.33.77"
+      port:
+        type: integer
+        description: "LightRAG API port number"
+        default: 9621
+        minimum: 1
+        maximum: 65535
+      apiKey:
+        type: string
+        description: "LightRAG API key (optional)"
+        title: "API Key"
+    required: []
+  commandFunction: |
+    (config) => {
+      const args = ['run', 'src/lightrag_mcp/main.py'];
+      
+      if (config.host && config.host !== '43.200.33.77') {
+        args.push('--host', config.host);
+      }
+      
+      if (config.port && config.port !== 9621) {
+        args.push('--port', config.port.toString());
+      }
+      
+      if (config.apiKey) {
+        args.push('--api-key', config.apiKey);
+      }
+      
+      return {
+        command: 'uv',
+        args: args
+      };
+    }
+
+# Example configuration for users
+exampleConfig:
+  host: "43.200.33.77"
+  port: 9621
+  apiKey: "your_api_key_here"
